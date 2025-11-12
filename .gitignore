@@ -1,58 +1,54 @@
-# ================================
-# 🧠 RAG_app — Git Ignore
-# ================================
-
-# === 1️⃣ Python général ===
+# Python
 __pycache__/
 *.py[cod]
-*.pyo
-*.pyd
+*$py.class
 *.so
-*.egg
-*.egg-info/
-build/
-dist/
-*.spec
-
-# === 2️⃣ Environnements virtuels ===
-venv/
+.Python
 env/
-.venv/
-.env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
 
-# === 3️⃣ Données et bases locales ===
-# FAISS index + métadonnées
-db/
-*.faiss
-*.pkl
-
-# === 4️⃣ Données d’entrée (PDF, data, etc.) ===
-data/
-PDFs/
-*.pdf
-
-# === 5️⃣ Fichiers sensibles ===
-config.py
-.env
-.env.local
-.env.*
-*.key
-*.pem
-*.secret
-
-# === 6️⃣ Logs, caches, outputs temporaires ===
-*.log
-*.tmp
-*.bak
-*.swp
-*.DS_Store
-Thumbs.db
-
-# === 7️⃣ Streamlit et IDE ===
-.streamlit/
+# IDEs
 .vscode/
 .idea/
+*.swp
+*.swo
+*~
 
-# === 8️⃣ Autres fichiers temporaires ===
-*.ipynb_checkpoints
-__MACOSX/
+# OS
+.DS_Store
+Thumbs.db
+
+# Streamlit
+.streamlit/secrets.toml
+
+# Data files - Ignore uploaded PDFs but ALLOW FAISS database
+data/*.pdf
+data/*.txt
+data/*.csv
+
+# IMPORTANT: Allow db folder contents (FAISS index)
+# DO NOT ignore db/ folder - we need to track it!
+# db/ folder should be tracked in git
+
+# Logs
+*.log
+
+# Temporary files
+*.tmp
+.cache/
