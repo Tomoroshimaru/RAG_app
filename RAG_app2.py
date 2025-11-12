@@ -1,17 +1,16 @@
-# rag_app.py (version corrigée - séparation upload/query)
+# rag_app.py - RAG with GitHub Sync
 import streamlit as st
 import os
 import pdfplumber
 import textwrap
 import numpy as np
 import faiss
-import pickle
 import warnings
 from sentence_transformers import SentenceTransformer
 from openai import OpenAI
-import streamlit as st
+from faiss_manager import load_index, save_index, clear_index, push_to_github, pull_from_github
 
-# Supprimer les warnings de pdfplumber
+# Suppress warnings
 warnings.filterwarnings("ignore", message=".*CropBox.*")
 
 # Config
@@ -35,9 +34,9 @@ model = load_model()
 OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
 client = OpenAI(api_key=OPENAI_API_KEY)
 
-# -------- Helper Functions --------
+# Helper function
 def extract_text_tables(file_bytes, filename):
-    """Extrait le texte et les tableaux d'un PDF"""
+    """Extract text and tables from PDF."""
     paragraphs = []
     metadata = []
     
@@ -72,170 +71,143 @@ def extract_text_tables(file_bytes, filename):
     
     return paragraphs, metadata
 
-def load_or_create_index():
-    """Charge l'index FAISS existant ou retourne None"""
-    index_path = os.path.join(DB_DIR, "index.faiss")
-    meta_path = os.path.join(DB_DIR, "metadata.pkl")
-    
-    if os.path.exists(index_path) and os.path.exists(meta_path):
-        try:
-            if os.path.getsize(index_path) > 0:
-                index = faiss.read_index(index_path)
-                with open(meta_path, "rb") as f:
-                    metadata = pickle.load(f)
-                return index, metadata
-            else:
-                st.warning("⚠️ Fichier index.faiss vide, création d'un nouvel index...")
-                return None, []
-        except Exception as e:
-            st.warning(f"⚠️ Erreur lors du chargement de l'index : {e}. Création d'un nouvel index...")
-            return None, []
-    
-    return None, []
-
-def save_index(index, metadata):
-    """Sauvegarde l'index FAISS et les métadonnées"""
-    index_path = os.path.join(DB_DIR, "index.faiss")
-    meta_path = os.path.join(DB_DIR, "metadata.pkl")
-    
-    try:
-        faiss.write_index(index, index_path)
-        with open(meta_path, "wb") as f:
-            pickle.dump(metadata, f)
-        return True
-    except Exception as e:
-        st.error(f"❌ Erreur lors de la sauvegarde : {e}")
-        return False
-
-# -------- Sidebar Stats --------
+# Sidebar
 with st.sidebar:
-    st.header("📊 Statistiques")
+    st.header("📊 Database Management")
     
-    index, metadata = load_or_create_index()
+    # Pull from GitHub
+    if st.button("⬇️ Pull from GitHub", use_container_width=True):
+        with st.spinner("Pulling..."):
+            success, message = pull_from_github()
+            if success:
+                st.success(message)
+                st.rerun()
+            else:
+                st.warning(message)
+    
+    # Stats
+    index, metadata = load_index()
     
     if index is not None and metadata:
-        st.metric("Nombre de segments", len(metadata))
-        
+        st.metric("Segments", len(metadata))
         sources = set([m.get("source", "Unknown") for m in metadata])
-        st.metric("Nombre de documents", len(sources))
+        st.metric("Documents", len(sources))
         
-        st.write("**Documents indexés :**")
-        for source in sorted(sources):
-            count = sum(1 for m in metadata if m.get("source") == source)
-            st.write(f"- {source} ({count} segments)")
+        with st.expander("📄 Indexed Documents"):
+            for source in sorted(sources):
+                count = sum(1 for m in metadata if m.get("source") == source)
+                st.write(f"• {source} ({count})")
     else:
-        st.info("Aucun document indexé pour le moment.")
+        st.info("No documents indexed yet.")
     
+    st.divider()
+    
+    # Push to GitHub
+    if st.button("⬆️ Push to GitHub", type="primary", use_container_width=True):
+        with st.spinner("Pushing..."):
+            success, message = push_to_github()
+            st.success(message) if success else st.warning(message)
+    
+    # Clear database
+    if st.button("🗑️ Clear Database", use_container_width=True):
+        clear_index()
+        st.success("✅ Database cleared!")
+        st.rerun()
 
+# Main Title
+st.title("🧠 RAG on PDF Documents")
 
-# -------- Main Title --------
-st.title("🧠 RAG sur documents PDF")
+# Tabs
+tab1, tab2 = st.tabs(["📤 Upload Documents", "❓ Ask Questions"])
 
-# -------- Tabs pour séparer Upload et Query --------
-tab1, tab2 = st.tabs(["📤 Upload de documents", "❓ Poser une question"])
-
-# ========== TAB 1: UPLOAD ==========
+# TAB 1: UPLOAD
 with tab1:
-    st.header("📤 Ajouter des documents")
-    
-    # Bouton pour réinitialiser la base en haut
-    col1, col2 = st.columns([3, 1])
-    with col2:
-        if st.button("🗑️ Réinitialiser la base", key="reset_btn_tab", type="secondary"):
-            index_path = os.path.join(DB_DIR, "index.faiss")
-            meta_path = os.path.join(DB_DIR, "metadata.pkl")
-            
-            if os.path.exists(index_path):
-                os.remove(index_path)
-            if os.path.exists(meta_path):
-                os.remove(meta_path)
-            
-            st.success("✅ Base réinitialisée !")
-            st.rerun()
+    st.header("📤 Add Documents")
     
     uploaded_files = st.file_uploader(
-        "Dépose tes fichiers PDF ici :", 
+        "Drop your PDF files here:", 
         accept_multiple_files=True, 
         type=["pdf"],
         key="pdf_uploader"
     )
     
-    if st.button("🚀 Indexer les documents", key="index_btn"):
+    if st.button("🚀 Index Documents", key="index_btn"):
         if not uploaded_files:
-            st.warning("⚠️ Veuillez d'abord sélectionner des fichiers PDF.")
+            st.warning("⚠️ Please select PDF files first.")
         else:
-            with st.spinner("📚 Traitement des fichiers PDF..."):
+            with st.spinner("📚 Processing PDFs..."):
                 corpus, new_metadata = [], []
                 
                 for file in uploaded_files:
-                    # Sauvegarder le fichier
+                    # Save file
                     file_path = os.path.join(DATA_DIR, file.name)
                     with open(file_path, "wb") as f:
                         f.write(file.getbuffer())
-                    st.success(f"✅ {file.name} enregistré.")
+                    st.success(f"✅ {file.name} saved.")
                     
-                    # Extraire le contenu
+                    # Extract content
                     paragraphs, file_metadata = extract_text_tables(file, file.name)
                     corpus.extend(paragraphs)
                     new_metadata.extend(file_metadata)
                 
                 if not corpus:
-                    st.error("❌ Aucun contenu extrait des PDFs.")
+                    st.error("❌ No content extracted from PDFs.")
                     st.stop()
                 
-                st.info(f"🧠 Création des embeddings pour {len(corpus)} segments...")
+                st.info(f"🧠 Creating embeddings for {len(corpus)} segments...")
                 
-                # Créer les embeddings
+                # Create embeddings
                 embeddings = model.encode(corpus, normalize_embeddings=True, show_progress_bar=False)
                 embeddings = np.array(embeddings, dtype=np.float32)
                 
-                # Charger ou créer l'index
-                existing_index, existing_metadata = load_or_create_index()
+                # Load or create index
+                existing_index, existing_metadata = load_index()
                 
                 if existing_index is not None:
-                    # Ajouter à l'index existant
+                    # Add to existing index
                     existing_index.add(embeddings)
                     combined_metadata = existing_metadata + new_metadata
                     index = existing_index
                 else:
-                    # Créer un nouvel index
+                    # Create new index
                     dimension = embeddings.shape[1]
                     index = faiss.IndexFlatIP(dimension)
                     index.add(embeddings)
                     combined_metadata = new_metadata
                 
-                # Sauvegarder
+                # Save
                 if save_index(index, combined_metadata):
-                    st.success(f"🎉 Base FAISS mise à jour avec succès ! Total de {len(combined_metadata)} segments.")
+                    st.success(f"🎉 Database updated! Total: {len(combined_metadata)} segments.")
+                    st.info("💡 Don't forget to push to GitHub using the sidebar button!")
                     st.balloons()
                 else:
-                    st.error("❌ Échec de la sauvegarde de l'index.")
+                    st.error("❌ Failed to save index.")
 
-# ========== TAB 2: QUERY ==========
+# TAB 2: QUERY
 with tab2:
-    st.header("❓ Pose ta question")
+    st.header("❓ Ask Your Question")
     
-    # Vérifier qu'il y a des documents indexés
-    index, metadata = load_or_create_index()
+    # Check if documents are indexed
+    index, metadata = load_index()
     
     if index is None or len(metadata) == 0:
-        st.warning("⚠️ Aucun document indexé. Veuillez d'abord uploader et indexer des documents dans l'onglet 'Upload de documents'.")
+        st.warning("⚠️ No documents indexed. Please upload and index documents first.")
     else:
-        query = st.text_input("Entrez votre question :", key="query_input")
+        query = st.text_input("Enter your question:", key="query_input")
         
-        if st.button("🔍 Rechercher", key="search_btn"):
+        if st.button("🔍 Search", key="search_btn"):
             if not query.strip():
-                st.warning("⚠️ Veuillez entrer une question.")
+                st.warning("⚠️ Please enter a question.")
             else:
-                with st.spinner("🔍 Recherche en cours..."):
-                    # Encoder la requête
+                with st.spinner("🔍 Searching..."):
+                    # Encode query
                     query_emb = model.encode([query], normalize_embeddings=True)
                     query_emb = np.array(query_emb, dtype=np.float32)
                     
-                    # Rechercher les segments les plus similaires
+                    # Search
                     D, I = index.search(query_emb, k=min(TOP_K, len(metadata)))
                     
-                    # Récupérer les textes
+                    # Retrieve texts
                     top_chunks = []
                     sources_info = []
                     
@@ -253,24 +225,23 @@ with tab2:
                                 })
                     
                     if not top_chunks:
-                        st.error("❌ Aucun texte trouvé dans les métadonnées.")
+                        st.error("❌ No text found.")
                     else:
-                        # Afficher les sources
-                        with st.expander("📚 Sources utilisées (cliquez pour voir)"):
+                        # Show sources
+                        with st.expander("📚 Sources used (click to view)"):
                             for i, source in enumerate(sources_info, 1):
-                                st.write(f"**{i}.** 📄 {source['source']} (page {source['page']}, {source['type']}) - Similarité: {source['score']:.3f}")
+                                st.write(f"**{i}.** 📄 {source['source']} (page {source['page']}, {source['type']}) - Score: {source['score']:.3f}")
                         
-                        # Construire le prompt
+                        # Build prompt
                         context = "\n\n".join(top_chunks)
-                        prompt = f"""Contexte extrait des documents :
+                        prompt = f"""Context from documents:
 {context}
 
-Question : {query}
+Question: {query}
 
-Réponds de manière précise et factuelle en te basant uniquement sur le contexte fourni. 
-Si l'information n'est pas dans le contexte, indique-le clairement."""
+Answer precisely based only on the context provided. If the information is not in the context, say so clearly."""
 
-                        st.info("🧠 Génération de la réponse...")
+                        st.info("🧠 Generating answer...")
                         
                         try:
                             response = client.chat.completions.create(
@@ -278,7 +249,7 @@ Si l'information n'est pas dans le contexte, indique-le clairement."""
                                 messages=[
                                     {
                                         "role": "system", 
-                                        "content": "Tu es un assistant spécialisé dans l'analyse de documents PDF. Tu réponds uniquement à partir du contexte fourni."
+                                        "content": "You are an assistant specialized in analyzing PDF documents. Answer only from the provided context."
                                     },
                                     {"role": "user", "content": prompt},
                                 ],
@@ -288,8 +259,8 @@ Si l'information n'est pas dans le contexte, indique-le clairement."""
                             
                             answer = response.choices[0].message.content.strip()
                             
-                            st.subheader("🎯 Réponse générée :")
+                            st.subheader("🎯 Generated Answer:")
                             st.write(answer)
                             
                         except Exception as e:
-                            st.error(f"❌ Erreur lors de la génération : {e}")
+                            st.error(f"❌ Generation error: {e}")
