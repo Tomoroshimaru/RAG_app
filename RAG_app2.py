@@ -9,7 +9,7 @@ import pickle
 import warnings
 from sentence_transformers import SentenceTransformer
 from openai import OpenAI
-from config import OPENAI_API_KEY
+import streamlit as st
 
 # Supprimer les warnings de pdfplumber
 warnings.filterwarnings("ignore", message=".*CropBox.*")
@@ -32,6 +32,7 @@ def load_model():
     return SentenceTransformer(MODEL_NAME)
 
 model = load_model()
+OPENAI_API_KEY = st.secrets["OPENAI_API_KEY"]
 client = OpenAI(api_key=OPENAI_API_KEY)
 
 # -------- Helper Functions --------
