@@ -1,7 +1,0 @@
-streamlit
-pdfplumber
-sentence-transformers
-faiss-cpu
-numpy
-openai
-tqdm
