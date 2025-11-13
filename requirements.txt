@@ -4,6 +4,5 @@ pdfminer.six==20221105
 sentence-transformers
 faiss-cpu
 numpy
-pandas
 openai
-tqdm
+langdetect

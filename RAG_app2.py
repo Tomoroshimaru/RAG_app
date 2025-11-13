@@ -1,4 +1,4 @@
-# rag_app.py - RAG with GitHub Sync + Multi-Query Rewriting
+# rag_app.py - RAG with GitHub Sync + Cross-Lingual Multi-Query
 import streamlit as st
 import os
 import pdfplumber
@@ -7,6 +7,7 @@ import numpy as np
 import faiss
 import warnings
 import json
+from langdetect import detect
 from sentence_transformers import SentenceTransformer
 from openai import OpenAI
 from faiss_manager import load_index, save_index, clear_index, push_to_github, pull_from_github
@@ -19,8 +20,10 @@ DATA_DIR = "data"
 DB_DIR = "db"
 MODEL_NAME = "intfloat/multilingual-e5-base"
 CHUNK_SIZE = 500
-TOP_K = 5  # Per query variant
-ENABLE_REWRITING = True  # Toggle multi-query rewriting
+TOP_K_PER_QUERY = 5  # Per query variant
+TOP_K_FINAL = 15     # Final chunks after reranking
+ENABLE_REWRITING = True
+ENABLE_TRANSLATION = True
 
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(DB_DIR, exist_ok=True)
@@ -50,7 +53,6 @@ def extract_text_tables(file_bytes, filename):
     
     with pdfplumber.open(file_bytes) as pdf:
         for page_num, page in enumerate(pdf.pages, start=1):
-            # Extract text
             text = page.extract_text() or ""
             if text:
                 chunks = textwrap.wrap(text.strip(), width=CHUNK_SIZE)
@@ -64,7 +66,6 @@ def extract_text_tables(file_bytes, filename):
                             "text": chunk
                         })
             
-            # Extract tables
             tables = page.extract_tables()
             if tables:
                 for table in tables:
@@ -88,23 +89,32 @@ def encode_texts(texts, prefix="passage"):
     embeddings = model.encode(formatted, normalize_embeddings=True, show_progress_bar=False)
     return np.array(embeddings, dtype=np.float32)
 
-def rewrite_query(query):
-    """Generate 2 reformulations of the query in French."""
+def detect_language(query):
+    """Detect query language (FR or EN)."""
+    try:
+        lang = detect(query)
+        return "FR" if lang.startswith("fr") else "EN"
+    except:
+        return "EN"  # Default to EN if detection fails
+
+def rewrite_query(query, lang):
+    """Generate 2 reformulations in the detected language."""
     if not ENABLE_REWRITING:
         return [query]
     
-    rewrite_prompt = f"""Tu es un assistant spécialisé en reformulation pour améliorer la recherche sémantique.
-À partir de la question suivante, génère 2 reformulations FR différentes :
+    lang_instruction = "French" if lang == "FR" else "English"
+    
+    rewrite_prompt = f"""You are a query rewriting specialist. Generate 2 reformulations of this query in {lang_instruction}:
 
-- uniquement des synonymes ou équivalents sémantiques
-- aucune généralisation excessive
-- sens strictement identique à la requête originale
-- reste concis
+- Use only synonyms or semantic equivalents
+- Keep the exact same meaning
+- No generalization
+- Be concise
 
-Question originale :
+Original query:
 {query}
 
-Réponds au format JSON :
+Respond in JSON format:
 {{
   "q1": "<reformulation_1>",
   "q2": "<reformulation_2>"
@@ -120,11 +130,11 @@ Réponds au format JSON :
         )
         
         content = response.choices[0].message.content.strip()
-        # Remove markdown code blocks if present
-        if content.startswith("```"):
+        # Clean markdown blocks
+        if "```" in content:
             content = content.split("```")[1]
             if content.startswith("json"):
-                content = content[4:]
+                content = content[4:].strip()
         
         rewrites = json.loads(content)
         return [query, rewrites["q1"], rewrites["q2"]]
@@ -133,17 +143,59 @@ Réponds au format JSON :
         st.warning(f"⚠️ Rewriting failed: {e}. Using original query only.")
         return [query]
 
-def search_multi_query(queries, index, metadata, top_k=TOP_K):
-    """Search with multiple query variants and deduplicate results."""
-    all_results = []
-    seen_texts = set()
+def translate_queries(queries, source_lang):
+    """Translate 3 queries to the other language."""
+    if not ENABLE_TRANSLATION:
+        return []
     
-    for query_variant in queries:
-        # Encode query with E5 prefix
-        query_emb = encode_texts([query_variant], prefix="query")
+    target_lang = "English" if source_lang == "FR" else "French"
+    
+    translate_prompt = f"""Translate these 3 queries to {target_lang}. Keep the exact same meaning.
+
+Queries:
+1. {queries[0]}
+2. {queries[1]}
+3. {queries[2]}
+
+Respond in JSON format:
+{{
+  "t1": "<translation_1>",
+  "t2": "<translation_2>",
+  "t3": "<translation_3>"
+}}
+"""
+    
+    try:
+        response = client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[{"role": "user", "content": translate_prompt}],
+            temperature=0.3,
+            max_tokens=300
+        )
         
-        # Search
-        D, I = index.search(query_emb, k=min(top_k, len(metadata)))
+        content = response.choices[0].message.content.strip()
+        # Clean markdown blocks
+        if "```" in content:
+            content = content.split("```")[1]
+            if content.startswith("json"):
+                content = content[4:].strip()
+        
+        translations = json.loads(content)
+        return [translations["t1"], translations["t2"], translations["t3"]]
+    
+    except Exception as e:
+        st.warning(f"⚠️ Translation failed: {e}. Using source language only.")
+        return []
+
+def search_and_rerank(queries, index, metadata, top_k_per_query=TOP_K_PER_QUERY, top_k_final=TOP_K_FINAL):
+    """Search with 6 queries, deduplicate, rerank by max score."""
+    # Dictionary to store: {chunk_text: (max_score, metadata)}
+    chunk_scores = {}
+    
+    for query_text in queries:
+        # Encode and search
+        query_emb = encode_texts([query_text], prefix="query")
+        D, I = index.search(query_emb, k=min(top_k_per_query, len(metadata)))
         
         # Collect results
         for idx, score in zip(I[0], D[0]):
@@ -151,22 +203,33 @@ def search_multi_query(queries, index, metadata, top_k=TOP_K):
                 entry = metadata[idx]
                 text = entry.get("text", "")
                 
-                # Deduplicate by text content
-                if text and text not in seen_texts:
-                    seen_texts.add(text)
-                    all_results.append({
-                        "text": text,
-                        "source": entry.get("source", "Unknown"),
-                        "page": entry.get("page", 0),
-                        "type": entry.get("type", "text"),
-                        "score": float(score),
-                        "query_variant": query_variant
-                    })
+                if text:
+                    # Keep max score for each unique chunk
+                    if text not in chunk_scores or score > chunk_scores[text][0]:
+                        chunk_scores[text] = (
+                            float(score),
+                            {
+                                "source": entry.get("source", "Unknown"),
+                                "page": entry.get("page", 0),
+                                "type": entry.get("type", "text"),
+                            }
+                        )
     
-    # Sort by score (descending)
-    all_results.sort(key=lambda x: x["score"], reverse=True)
+    # Sort by score (descending) and take top K
+    ranked = sorted(chunk_scores.items(), key=lambda x: x[1][0], reverse=True)
     
-    return all_results
+    # Format results
+    results = []
+    for text, (score, meta) in ranked[:top_k_final]:
+        results.append({
+            "text": text,
+            "score": score,
+            "source": meta["source"],
+            "page": meta["page"],
+            "type": meta["type"]
+        })
+    
+    return results
 
 # Sidebar
 with st.sidebar:
@@ -200,9 +263,18 @@ with st.sidebar:
     st.divider()
     
     # Settings
-    st.subheader("⚙️ Settings")
-    ENABLE_REWRITING = st.checkbox("Enable Multi-Query Rewriting", value=True, 
-                                    help="Generate 3 query variants for better recall")
+    st.subheader("⚙️ Search Settings")
+    ENABLE_REWRITING = st.checkbox("Enable Query Rewriting", value=True, 
+                                    help="Generate query variants for better recall")
+    ENABLE_TRANSLATION = st.checkbox("Enable Cross-Lingual Search", value=True,
+                                     help="Search in both FR and EN (6 queries total)")
+    
+    if ENABLE_TRANSLATION:
+        st.info("🌍 Will search in FR + EN (6 queries)")
+    elif ENABLE_REWRITING:
+        st.info("🔄 Will search with 3 variants")
+    else:
+        st.info("📝 Single query search")
     
     st.divider()
     
@@ -252,15 +324,12 @@ with tab2:
             progress_bar = st.progress(0)
             
             for i, file in enumerate(uploaded_files):
-                # Update progress
                 progress_bar.progress((i + 1) / len(uploaded_files))
                 
-                # Save file
                 file_path = os.path.join(DATA_DIR, file.name)
                 with open(file_path, "wb") as f:
                     f.write(file.getbuffer())
                 
-                # Extract content
                 paragraphs, file_metadata = extract_text_tables(file, file.name)
                 corpus.extend(paragraphs)
                 new_metadata.extend(file_metadata)
@@ -275,25 +344,20 @@ with tab2:
             
             st.info(f"🧠 Creating embeddings for {len(corpus)} segments...")
             
-            # Create embeddings with E5 prefix
             embeddings = encode_texts(corpus, prefix="passage")
             
-            # Load or create index
             existing_index, existing_metadata = load_index()
             
             if existing_index is not None:
-                # Add to existing index
                 existing_index.add(embeddings)
                 combined_metadata = existing_metadata + new_metadata
                 index = existing_index
             else:
-                # Create new index
                 dimension = embeddings.shape[1]
                 index = faiss.IndexFlatIP(dimension)
                 index.add(embeddings)
                 combined_metadata = new_metadata
             
-            # Save
             if save_index(index, combined_metadata):
                 st.success(f"🎉 Database updated! Total: {len(combined_metadata)} segments.")
                 st.info("💡 Don't forget to push to GitHub using the sidebar button!")
@@ -305,11 +369,10 @@ with tab2:
 with tab1:
     st.header("❓ Explore Your Documents")
     
-    # Check if documents are indexed
     index, metadata = load_index()
     
     if index is None or len(metadata) == 0:
-        st.warning("⚠️ No documents indexed. Please upload and index documents first in the 'Upload Documents' tab.")
+        st.warning("⚠️ No documents indexed. Please upload and index documents first.")
     else:
         # Display conversation history
         if st.session_state.history:
@@ -323,7 +386,7 @@ with tab1:
         query = st.text_input(
             "Enter your question:", 
             key="query_input",
-            placeholder="e.g., What are the main findings in the document?"
+            placeholder="Ask in French or English..."
         )
         
         col1, col2 = st.columns([3, 1])
@@ -340,7 +403,6 @@ with tab1:
             if not query.strip():
                 st.warning("⚠️ Please enter a question.")
             else:
-                # Avoid duplicate searches
                 if query == st.session_state.last_query:
                     st.info("💡 This question was already asked. Check the history above.")
                     st.stop()
@@ -348,38 +410,65 @@ with tab1:
                 st.session_state.last_query = query
                 
                 with st.spinner("🔍 Processing query..."):
-                    # Step 1: Generate query variants
-                    if ENABLE_REWRITING:
-                        with st.spinner("📝 Generating query variants..."):
-                            query_variants = rewrite_query(query)
-                            if len(query_variants) > 1:
-                                with st.expander("🔄 Query Variants Generated"):
-                                    for i, qv in enumerate(query_variants, 1):
-                                        st.write(f"**{i}.** {qv}")
-                    else:
-                        query_variants = [query]
+                    # Step 1: Detect language
+                    detected_lang = detect_language(query)
+                    st.info(f"🌐 Detected language: {detected_lang}")
                     
-                    # Step 2: Multi-query search with deduplication
+                    all_queries = []
+                    
+                    # Step 2: Generate rewrites in source language
+                    if ENABLE_REWRITING:
+                        with st.spinner(f"📝 Generating {detected_lang} variants..."):
+                            source_queries = rewrite_query(query, detected_lang)
+                            all_queries.extend(source_queries)
+                            
+                            if len(source_queries) > 1:
+                                with st.expander(f"🔄 {detected_lang} Query Variants"):
+                                    for i, q in enumerate(source_queries, 1):
+                                        st.write(f"**{i}.** {q}")
+                    else:
+                        all_queries = [query]
+                    
+                    # Step 3: Translate to other language
+                    if ENABLE_TRANSLATION and len(all_queries) == 3:
+                        target_lang = "EN" if detected_lang == "FR" else "FR"
+                        with st.spinner(f"🌍 Translating to {target_lang}..."):
+                            translated = translate_queries(all_queries, detected_lang)
+                            
+                            if translated:
+                                all_queries.extend(translated)
+                                with st.expander(f"🌍 {target_lang} Translations"):
+                                    for i, q in enumerate(translated, 1):
+                                        st.write(f"**{i}.** {q}")
+                    
+                    st.info(f"🔍 Searching with {len(all_queries)} query variants...")
+                    
+                    # Step 4: Search and rerank
                     with st.spinner("🔍 Searching documents..."):
-                        results = search_multi_query(query_variants, index, metadata, top_k=TOP_K)
+                        results = search_and_rerank(
+                            all_queries, 
+                            index, 
+                            metadata,
+                            top_k_per_query=TOP_K_PER_QUERY,
+                            top_k_final=TOP_K_FINAL
+                        )
                     
                     if not results:
                         st.error("❌ No relevant information found.")
                     else:
                         # Show sources
-                        with st.expander(f"📚 Top {len(results)} Sources (click to view)"):
+                        with st.expander(f"📚 Top {len(results)} Sources (reranked)"):
                             for i, result in enumerate(results, 1):
-                                variant_info = f" | Variant: '{result['query_variant'][:50]}...'" if ENABLE_REWRITING else ""
                                 st.write(
                                     f"**{i}.** 📄 {result['source']} "
                                     f"(page {result['page']}, {result['type']}) - "
-                                    f"Score: {result['score']:.3f}{variant_info}"
+                                    f"Score: {result['score']:.3f}"
                                 )
                         
-                        # Build context from deduplicated results
+                        # Build context
                         context = "\n\n".join([r["text"] for r in results])
                         
-                        # Build prompt with conversation history
+                        # Build prompt with history
                         history_context = ""
                         if st.session_state.history:
                             recent = st.session_state.history[-3:]
@@ -415,9 +504,12 @@ Answer precisely based on the context provided. If the information is not in the
                             st.subheader("🎯 Generated Answer:")
                             st.write(answer)
                             
-                            # Show stats if multi-query was used
-                            if ENABLE_REWRITING and len(query_variants) > 1:
-                                st.info(f"ℹ️ Used {len(query_variants)} query variants to find {len(results)} unique chunks")
+                            # Show stats
+                            stats_msg = f"ℹ️ Used {len(all_queries)} queries ({detected_lang}"
+                            if ENABLE_TRANSLATION and len(all_queries) == 6:
+                                stats_msg += f" + {'EN' if detected_lang == 'FR' else 'FR'}"
+                            stats_msg += f") → {len(results)} unique chunks (reranked)"
+                            st.info(stats_msg)
                             
                             # Save to history
                             st.session_state.history.append({
