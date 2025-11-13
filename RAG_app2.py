@@ -192,7 +192,7 @@ with tab2:
 
 # TAB 2: QUERY
 with tab1:
-    st.header("❓ Ask Your Question")
+    st.header("Explore your Documents")
     
     # Check if documents are indexed
     index, metadata = load_index()
@@ -202,7 +202,7 @@ with tab1:
     else:
         # Display conversation history
         if "history" in st.session_state and st.session_state.history:
-            st.write("### 💬 Conversation so far")
+            st.write("### Conversation")
             for item in st.session_state.history:
                 st.markdown(f"**🧑‍💻 Question:** {item['query']}")
                 st.markdown(f"**🤖 Answer:** {item['answer']}")
