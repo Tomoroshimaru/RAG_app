@@ -248,7 +248,7 @@ with tab1:
         # Display conversation history
         if st.session_state.history:
             with st.expander("📜 Conversation History", expanded=False):
-                for i, item in enumerate(reversed(st.session_state.history[-5:]), 1):
+                for i, item in enumerate((st.session_state.history[-5:]), 1):
                     st.markdown(f"**Q{i}:** {item['query']}")
                     st.markdown(f"**A{i}:** {item['answer'][:200]}...")
                     st.markdown("---")
