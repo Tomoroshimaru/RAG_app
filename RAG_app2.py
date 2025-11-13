@@ -18,7 +18,7 @@ DATA_DIR = "data"
 DB_DIR = "db"
 MODEL_NAME = "all-MiniLM-L6-v2"
 CHUNK_SIZE = 500
-TOP_K = 5
+TOP_K = 10
 
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(DB_DIR, exist_ok=True)
