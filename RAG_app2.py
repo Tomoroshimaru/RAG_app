@@ -106,7 +106,10 @@ with st.sidebar:
     if st.button("⬆️ Push to GitHub", type="primary", use_container_width=True):
         with st.spinner("Pushing..."):
             success, message = push_to_github()
-            st.success(message) if success else st.warning(message)
+            if success:
+                st.success(message) 
+            else: 
+                st.warning(message)
     
     # Clear database
     if st.button("🗑️ Clear Database", use_container_width=True):
