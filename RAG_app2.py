@@ -23,6 +23,10 @@ TOP_K = 10
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(DB_DIR, exist_ok=True)
 
+# Conversation state
+if "history" not in st.session_state:
+    st.session_state.history = []
+
 st.set_page_config(page_title="RAG PDF App", page_icon="🧠", layout="centered")
 
 # Load models
@@ -121,10 +125,10 @@ with st.sidebar:
 st.title("🧠 RAG on PDF Documents")
 
 # Tabs
-tab1, tab2 = st.tabs(["📤 Upload Documents", "❓ Ask Questions"])
+tab1, tab2 = st.tabs(["❓ Ask Questions", "📤 Upload Documents"])
 
 # TAB 1: UPLOAD
-with tab1:
+with tab2:
     st.header("📤 Add Documents")
     
     uploaded_files = st.file_uploader(
@@ -187,7 +191,7 @@ with tab1:
                     st.error("❌ Failed to save index.")
 
 # TAB 2: QUERY
-with tab2:
+with tab1:
     st.header("❓ Ask Your Question")
     
     # Check if documents are indexed
@@ -196,6 +200,15 @@ with tab2:
     if index is None or len(metadata) == 0:
         st.warning("⚠️ No documents indexed. Please upload and index documents first.")
     else:
+        # Display conversation history
+        if "history" in st.session_state and st.session_state.history:
+            st.write("### 💬 Conversation so far")
+            for item in st.session_state.history:
+                st.markdown(f"**🧑‍💻 Question:** {item['query']}")
+                st.markdown(f"**🤖 Answer:** {item['answer']}")
+                st.markdown("---")
+
+        # User input
         query = st.text_input("Enter your question:", key="query_input")
         
         if st.button("🔍 Search", key="search_btn"):
@@ -264,6 +277,11 @@ Answer precisely based only on the context provided. If the information is not i
                             
                             st.subheader("🎯 Generated Answer:")
                             st.write(answer)
+
+                            st.session_state.history.append({
+                                "query": query,
+                                "answer": answer
+                            })
                             
                         except Exception as e:
                             st.error(f"❌ Generation error: {e}")
