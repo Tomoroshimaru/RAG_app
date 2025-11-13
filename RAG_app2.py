@@ -167,7 +167,7 @@ with st.sidebar:
 st.title("🧠 RAG on PDF Documents")
 
 # Tabs
-tab1, tab2 = st.tabs(["❓ Ask Questions", "📤 Upload Documents"])
+tab1, tab2 = st.tabs(["Ask questions", "Upload documents"])
 
 # TAB 2: UPLOAD
 with tab2:
