@@ -6,7 +6,7 @@
 
 A powerful **Retrieval-Augmented Generation (RAG)** application that enables intelligent document querying with **cross-lingual search** (FR+EN), **GitHub synchronization**, and **real-time analytics**.
 
----
+--- 
 
 ## 🚀 Features
 
