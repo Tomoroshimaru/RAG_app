@@ -254,6 +254,15 @@ with st.sidebar:
     else:
         st.info("No documents indexed yet.")
     
+    # Push to GitHub
+    if st.button("⬆️ Push to GitHub", type="primary", use_container_width=True):
+        with st.spinner("Pushing..."):
+            success, message = push_to_github()
+            if success:
+                st.success(message)
+            else:
+                st.warning(message)
+    
     st.divider()
     
     # Search settings
@@ -273,19 +282,10 @@ with st.sidebar:
     st.divider()
     
     # Analytics dashboard toggle
-    if st.button("📊 Show Analytics Dashboard", use_container_width=True):
+    if st.button("📊 Analytics Dashboard", use_container_width=True):
         st.session_state.show_dashboard = not st.session_state.show_dashboard
     
     st.divider()
-    
-    # Push to GitHub
-    if st.button("⬆️ Push to GitHub", type="primary", use_container_width=True):
-        with st.spinner("Pushing..."):
-            success, message = push_to_github()
-            if success:
-                st.success(message)
-            else:
-                st.warning(message)
     
     # Clear actions
     if st.button("🗑️ Clear Database", use_container_width=True):
@@ -327,7 +327,7 @@ if st.session_state.show_dashboard:
             col1, col2 = st.columns(2)
             
             with col1:
-                st.subheader("🌐 Languages Breakdown")
+                st.subheader("Languages Breakdown")
                 if "detected_language" in qlogs.columns:
                     lang_counts = qlogs["detected_language"].value_counts()
                     st.bar_chart(lang_counts)
@@ -335,14 +335,14 @@ if st.session_state.show_dashboard:
                     st.info("No language data available")
             
             with col2:
-                st.subheader("📊 Query Statistics")
+                st.subheader("Query Statistics")
                 st.metric("Total Queries", len(qlogs))
                 
                 if "results" in qlogs.columns:
                     avg_results = qlogs["results"].apply(lambda x: len(x) if isinstance(x, list) else 0).mean()
                     st.metric("Avg Results per Query", f"{avg_results:.1f}")
             
-            st.subheader("📄 Most Referenced Documents")
+            st.subheader("Most Referenced Documents")
             if "results" in qlogs.columns:
                 docs = {}
                 for reslist in qlogs["results"].dropna():
@@ -357,7 +357,7 @@ if st.session_state.show_dashboard:
                 else:
                     st.info("No document references found")
             
-            st.subheader("📈 Average Similarity Scores")
+            st.subheader("Average Similarity Scores")
             if "results" in qlogs.columns:
                 scores = []
                 for reslist in qlogs["results"].dropna():
@@ -373,12 +373,12 @@ if st.session_state.show_dashboard:
                     st.info("No score data available")
         
         upload_logs = df[df["type"] == "upload"]
-        st.subheader("📤 Upload Statistics")
+        st.subheader("Upload Statistics")
         st.metric("Total Document Uploads", len(upload_logs))
     
     st.divider()
     
-    if st.button("❌ Close Dashboard"):
+    if st.button("Close Dashboard"):
         st.session_state.show_dashboard = False
         st.rerun()
 
@@ -388,7 +388,7 @@ else:
     
     # ==================== TAB 2: UPLOAD ====================
     with tab2:
-        st.header("📤 Add Documents")
+        st.header("Add Documents")
         
         uploaded_files = st.file_uploader(
             "Drop your PDF files here:", 
@@ -454,7 +454,7 @@ else:
     
     # ==================== TAB 1: QUERY ====================
     with tab1:
-        st.header("❓ Explore Your Documents")
+        st.header("Explore Your Documents")
         
         index, metadata = load_index()
         
@@ -567,7 +567,7 @@ Answer precisely based on the context provided. If the information is not in the
                             
                             try:
                                 response = client.chat.completions.create(
-                                    model="gpt-4o-mini",
+                                    model="gpt-4o",
                                     messages=[
                                         {
                                             "role": "system", 
@@ -575,13 +575,13 @@ Answer precisely based on the context provided. If the information is not in the
                                         },
                                         {"role": "user", "content": prompt},
                                     ],
-                                    temperature=0.3,
+                                    temperature=0.2,
                                     max_tokens=800
                                 )
                                 
                                 answer = response.choices[0].message.content.strip()
                                 
-                                st.subheader("🎯 Generated Answer:")
+                                st.subheader("Generated Answer:")
                                 st.write(answer)
                                 
                                 # Show stats
@@ -611,7 +611,7 @@ Answer precisely based on the context provided. If the information is not in the
     
     # ==================== TAB 3: LOGS ====================
     with tab3:
-        st.header("📘 Query Logs")
+        st.header("Query Logs")
         
         logs = load_logs()
         
