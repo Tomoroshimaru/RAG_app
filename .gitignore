@@ -51,3 +51,7 @@ data/*.csv
 # Temporary files
 *.tmp
 .cache/
+
+db/index.faiss
+db/metadata.pkl
+logs/*.jsonl
