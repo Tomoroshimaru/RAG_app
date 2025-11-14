@@ -37,14 +37,13 @@ Thumbs.db
 # Streamlit
 .streamlit/secrets.toml
 
-# Data files - Ignore uploaded PDFs but ALLOW FAISS database
+# Data files - Ignore uploaded PDFs but ALLOW FAISS database and logs
 data/*.pdf
 data/*.txt
 data/*.csv
 
-# IMPORTANT: Allow db folder contents (FAISS index)
-# DO NOT ignore db/ folder - we need to track it!
-# db/ folder should be tracked in git
+# IMPORTANT: Allow db/ and logs/ folders - we need to track them!
+# DO NOT ignore these folders
 
 # Logs
 *.log

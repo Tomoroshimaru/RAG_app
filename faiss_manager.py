@@ -89,14 +89,17 @@ def configure_git():
         return False
 
 def push_to_github(commit_message="Update FAISS index"):
-    """Push FAISS files to GitHub."""
+    """Push FAISS files and logs to GitHub."""
     try:
         # Configure Git first
         configure_git()
         
-        # Add files
+        # Add files with force flag to override .gitignore
         subprocess.run(
-            ["git", "add", f"{DB_DIR}/index.faiss", f"{DB_DIR}/metadata.pkl"],
+            ["git", "add", "-f", 
+             f"{DB_DIR}/index.faiss", 
+             f"{DB_DIR}/metadata.pkl",
+             "logs/query_logs.jsonl"],
             check=True,
             capture_output=True
         )
