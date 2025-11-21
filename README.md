@@ -69,42 +69,9 @@ RAG_app/
 ```bash
 git clone https://github.com/yourusername/RAG_app.git
 cd RAG_app
-```
 
-### **2. Create Virtual Environment**
-```bash
-python -m venv venv
-
-# Windows
-venv\Scripts\activate
-
-# macOS/Linux
-source venv/bin/activate
-```
-
-### **3. Install Dependencies**
-```bash
-pip install -r requirements.txt
-```
-
-### **4. Create Required Folders**
-```bash
-mkdir -p db data logs
-touch db/.gitkeep data/.gitkeep logs/.gitkeep
-```
-
-### **5. Configure Secrets**
-
-Create `.streamlit/secrets.toml`:
-
-```toml
-# OpenAI API Key
-OPENAI_API_KEY = "sk-your-openai-api-key"
-
-# GitHub credentials (for push/pull)
-GIT_USER_NAME = "YourGitHubUsername"
-GIT_USER_EMAIL = "your-email@example.com"
-GH_TOKEN = "ghp_YourPersonalAccessToken"
+chmod +x setup.sh
+./setup.sh
 ```
 
 **To create a GitHub Personal Access Token:**
