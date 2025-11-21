@@ -1,5 +1,5 @@
 #!/bin/sh
-'''exec' "/Users/ugo/Documents/Cours/Master/Cours/M1/Intro to GenAI (including RAG)/Final Project/.venv/bin/python3.11" "$0" "$@"
+'''exec' "/Users/ugo/Documents/Cours/Master/Cours/M1/Intro to GenAI (including RAG)/RAG_app/.venv/bin/python3.14" "$0" "$@"
 ' '''
 import sys
 from pip._internal.cli.main import main
