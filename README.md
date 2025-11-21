@@ -67,7 +67,7 @@ RAG_app/
 
 ### **1. Clone the Repository**
 ```bash
-git clone https://github.com/yourusername/RAG_app.git
+git clone https://github.com/Tomoroshimaru/RAG_app.git
 cd RAG_app
 
 chmod +x setup.sh
