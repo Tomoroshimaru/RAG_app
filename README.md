@@ -71,7 +71,7 @@ git clone https://github.com/yourusername/RAG_app.git
 cd RAG_app
 
 chmod +x setup.sh
-./setup.sh
+source setup.sh
 ```
 
 **To create a GitHub Personal Access Token:**
